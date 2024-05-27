@@ -1,9 +1,10 @@
 import asyncio
-import events
+from . import events
 from asyncio import base_futures, exceptions, format_helpers
 import sys
 from types import GenericAlias
 import reprlib
+import contextvars
 
 
 _PENDING = asyncio.base_futures._PENDING
@@ -176,7 +177,7 @@ class PrioritizedFuture:
             self._loop.call_soon(fn, self, priority=self.priority, context=context)
         else:
             if context is None:
-                context = asyncio.contextvars.copy_context()
+                context = contextvars.copy_context()
             self._callbacks.append((fn, context))
 
     def remove_done_callback(self, fn):

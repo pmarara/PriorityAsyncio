@@ -23,6 +23,12 @@ class PrioritizedHandle(asyncio.Handle):
     
     def __gt__(self,other):
         return self.priority > other.priority
+    
+    @classmethod
+    def from_handle(cls, handle):
+        return PrioritizedHandle(handle._callback, handle._args, handle._loop, priority = 0, context = handle._context )
+
+
     """
     def _run(self):
         try:

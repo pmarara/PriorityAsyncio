@@ -1,10 +1,11 @@
 import asyncio
 import heapq
-from events import PrioritizedHandle, PrioritizedTimerHandle
-from tasks import PrioritizedTask, ensure_future
+from .events import PrioritizedHandle, PrioritizedTimerHandle
+from .tasks import PrioritizedTask, ensure_future
 from asyncio import coroutines, futures
-from futures import PrioritizedFuture,  _get_loop
+from .futures import PrioritizedFuture,  _get_loop
 import inspect
+import selectors
 
 _MIN_SCHEDULED_TIMER_HANDLES = 100
 _MIN_CANCELLED_TIMER_HANDLES_FRACTION = 0.5
@@ -23,6 +24,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             self._check_thread()
             self._check_callback(callback, 'call_soon')
         handle = self._call_soon(callback, args, priority, context)
+        #print(handle.priority)
         if handle._source_traceback:
             del handle._source_traceback[-1]
         return handle
@@ -42,9 +44,10 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
     
     def _add_callback(self, handle):
         if not handle._cancelled:
+            handle = PrioritizedHandle.from_handle(handle)
             heapq.heappush(self._ready, handle)
 
-    def call_soon_threadsafe(self, callback, *args, priority, context=None):
+    def call_soon_threadsafe(self, callback, *args, priority = None, context=None):
         """Like call_soon(), but thread-safe."""
         self._check_closed()
         if self._debug:
@@ -168,6 +171,12 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
 
             Absolute time corresponds to the event loop's time() method.
             """
+            if(priority == None):
+                if(self._current_handle != None and getattr(self._current_handle, "priority") != None):
+                    priority = self._current_handle.priority
+                else:
+                    priority = 0
+
             if when is None:
                 raise TypeError("when cannot be None")
             self._check_closed()
@@ -251,6 +260,10 @@ s
                 priority = 0
         
         return PrioritizedFuture(loop=self, priority = priority)
+    
+
+
+
     
 def _run_until_complete_cb(fut):
     if not fut.cancelled():
