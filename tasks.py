@@ -1,9 +1,9 @@
 import asyncio
 from asyncio import coroutines
-from . import base_tasks
-from . import futures
+import base_tasks
+import futures
 import inspect
-from . import events
+import events
 import weakref
 import contextvars
 import itertools

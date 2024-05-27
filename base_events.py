@@ -1,9 +1,9 @@
 import asyncio
 import heapq
-from .events import PrioritizedHandle, PrioritizedTimerHandle
-from .tasks import PrioritizedTask, ensure_future
+from events import PrioritizedHandle, PrioritizedTimerHandle
+from tasks import PrioritizedTask, ensure_future
 from asyncio import coroutines, futures
-from .futures import PrioritizedFuture,  _get_loop
+from futures import PrioritizedFuture,  _get_loop
 import inspect
 import selectors
 

@@ -1,5 +1,5 @@
 import asyncio
-from . import events
+import events
 from asyncio import base_futures, exceptions, format_helpers
 import sys
 from types import GenericAlias
