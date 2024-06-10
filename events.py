@@ -14,19 +14,26 @@ _lock = threading.Lock()
 
 class PrioritizedHandle(asyncio.Handle):
     
-    def __init__(self, callback, args, loop, priority, context=None):
+    def __init__(self, callback, args, loop, priority, index, context=None):
         super().__init__(callback, args, loop, context=None)
         self.priority = priority
+        self.index = index
 
     def __lt__(self, other):
-        return self.priority < other.priority
+        if self.priority == other.priority:
+            return self.index < other.index
+        else:
+            return self.priority < other.priority
     
     def __gt__(self,other):
-        return self.priority > other.priority
+        if self.priority == other.priority:
+            return self.index > other.index
+        else:
+            return self.priority > other.priority
     
     @classmethod
-    def from_handle(cls, handle):
-        return PrioritizedHandle(handle._callback, handle._args, handle._loop, priority = 0, context = handle._context )
+    def from_handle(cls, handle, index):
+        return PrioritizedHandle(handle._callback, handle._args, handle._loop, priority = 0, index = index, context = handle._context )
 
 
     """
@@ -53,15 +60,26 @@ class PrioritizedHandle(asyncio.Handle):
     """
 
 class PrioritizedTimerHandle(asyncio.TimerHandle):
-    def __init__(self, when, callback, args, loop, priority, context=None):
+    def __init__(self, when, callback, args, loop, priority, index, context=None):
         super().__init__(when, callback, args, loop, context=None)
         self.priority = priority
+        self.index = index
 
     def __lt__(self, other):
-        return self.priority < other.priority
+        if not getattr(self, "_when", False) and not getattr(other, "_when", False) and self._when != other._when:
+            return self._when < other._when
+        elif self.priority == other.priority:
+            return self.index < other.index
+        else:
+            return self.priority < other.priority
     
     def __gt__(self,other):
-        return self.priority > other.priority
+        if not getattr(self, "_when", False) and not getattr(other, "_when", False) and self._when != other._when:
+            return self._when > other._when
+        elif self.priority == other.priority:
+            return self.index > other.index
+        else:
+            return self.priority > other.priority
     
     
 def get_event_loop():

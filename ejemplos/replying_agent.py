@@ -3,6 +3,7 @@ import spade
 import sys
 sys.path.append("..")
 from base_events import PrioritizedEventLoop
+from tasks import sleep
 
 
 # If using uvloop, uncomment these lines
@@ -16,6 +17,7 @@ class SenderAgent(spade.agent.Agent):
         async def run(self):
             global total_messages_sent
             # gtirouter.dsic.upv.es
+            #print("Envío de mensaje")
             msg = spade.message.Message(to="agent_100@gtirouter.dsic.upv.es", body="Hello", metadata={"performative": "inform"})
             await self.send(msg)
             total_messages_sent += 1
@@ -29,7 +31,8 @@ class ReceiverAgent(spade.agent.Agent):
 
     class ReceiveMsgBehaviour(spade.behaviour.CyclicBehaviour):
         async def run(self):
-            msg = await self.receive(timeout=1)  # Adjust timeout as needed
+            msg = await self.receive(timeout = 1)  # Adjust timeout as needed
+            #print("Recibo de mensaje")
             if msg:
                 sender_jid = str(msg.sender)
                 reply = spade.message.Message(to=sender_jid, body="Reply", metadata={"performative": "inform"})
@@ -47,12 +50,12 @@ async def main():
     receiver_agent = ReceiverAgent("agent_100@gtirouter.dsic.upv.es", "test")
     await receiver_agent.start()
 
-    sender_agents = [SenderAgent(f"agent_{i}@gtirouter.dsic.upv.es", "test") for i in range(1, 21)]
+    sender_agents = [SenderAgent(f"agent_{i}@gtirouter.dsic.upv.es", "test") for i in range(1, 5)]
     for agent in sender_agents:
         await agent.start()
 
     await asyncio.sleep(5)  # Run experiment for 5 seconds
-
+    
     for agent in sender_agents:
         await agent.stop()
     await receiver_agent.stop()
@@ -73,4 +76,4 @@ if __name__ == "__main__":
     if loop.is_running():
         loop.create_task(main())
     else:
-        loop.run_until_complete(main())
+        asyncio.run(main(), debug= True)

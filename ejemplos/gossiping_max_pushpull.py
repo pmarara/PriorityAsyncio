@@ -137,4 +137,4 @@ if __name__ == "__main__":
     if loop.is_running():
         loop.create_task(main())
     else:
-        loop.run_until_complete(main())
+        spade.run(main())

@@ -17,6 +17,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
     def __init__(self):
         super().__init__()
         self._ready = []  #(priority queue)
+        self.index = 0
 
     def call_soon(self, callback, *args, priority=None, context=None):
         self._check_closed()
@@ -36,7 +37,8 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             else:
                 priority = 0
 
-        handle = PrioritizedHandle(callback, args, self, priority, context)
+        handle = PrioritizedHandle(callback, args, self, priority, self.index, context)
+        self.index += 1
         if handle._source_traceback:
             del handle._source_traceback[-1]
         heapq.heappush(self._ready, handle)
@@ -44,7 +46,8 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
     
     def _add_callback(self, handle):
         if not handle._cancelled:
-            handle = PrioritizedHandle.from_handle(handle)
+            handle = PrioritizedHandle.from_handle(handle, self.index)
+            self.index += 1
             heapq.heappush(self._ready, handle)
 
     def call_soon_threadsafe(self, callback, *args, priority = None, context=None):
@@ -102,6 +105,9 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             elif timeout < 0:
                 timeout = 0
 
+        #print(f"READY: {self._ready}")
+        #print(f"SCHED: {self._scheduled}")
+        #print(f"TIMEOUT: {timeout}")
         event_list = self._selector.select(timeout)
         self._process_events(event_list)
         # Needed to break cycles when an exception occurs.
@@ -126,6 +132,8 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         ntodo = len(self._ready)
         for i in range(ntodo):
             handle = heapq.heappop(self._ready)
+            #print(handle._callback, handle.priority)
+
             #print(handle.priority)
             if handle._cancelled:
                 continue
@@ -183,7 +191,8 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             if self._debug:
                 self._check_thread()
                 self._check_callback(callback, 'call_at')
-            timer = PrioritizedTimerHandle(when, callback, args, self, priority, context)
+            timer = PrioritizedTimerHandle(when, callback, args, self, priority, self.index, context)
+            self.index += 1
             if timer._source_traceback:
                 del timer._source_traceback[-1]
             heapq.heappush(self._scheduled, timer)
@@ -217,7 +226,6 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         """Run until the Future is done.
 
         If the argument is a coroutine, it is wrapped in a Task.
-s
         WARNING: It would be disastrous to call run_until_complete()
         with the same coroutine twice -- it would wrap it in two
         different Tasks and that can't be good.
@@ -261,9 +269,6 @@ s
         
         return PrioritizedFuture(loop=self, priority = priority)
     
-
-
-
     
 def _run_until_complete_cb(fut):
     if not fut.cancelled():
