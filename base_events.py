@@ -1,44 +1,103 @@
 import asyncio
 import heapq
-from events import PrioritizedHandle, PrioritizedTimerHandle
-from tasks import PrioritizedTask, ensure_future
+from PriorityAsyncio.events import PrioritizedHandle, PrioritizedTimerHandle
+from PriorityAsyncio.tasks import PrioritizedTask, ensure_future
+from PriorityAsyncio.futures import PrioritizedFuture,  _get_loop
 from asyncio import coroutines, futures
-from futures import PrioritizedFuture,  _get_loop
 import inspect
 import selectors
+import time
+from collections import deque
 
 _MIN_SCHEDULED_TIMER_HANDLES = 100
 _MIN_CANCELLED_TIMER_HANDLES_FRACTION = 0.5
 MAXIMUM_SELECT_TIMEOUT = 24 * 3600
+TRACE_FILE = open("trace.ktr", "w")
+
+isTrace = True
+
+defined_lines = set()
+defined_events = set()
+header_lines = []
+events_queue = deque()
 
 class PrioritizedEventLoop(asyncio.SelectorEventLoop):
-
 
     def __init__(self):
         super().__init__()
         self._ready = []  #(priority queue)
-        self.index = 0
+        self.counterzero = 0
+        self.counterother = 0
+        self.start_time = time.perf_counter()
+        self.line_count = 0
+        self._write_trace_header()
+        self.arrival_counter = 0  # Contador para el orden de llegada
+        
 
-    def call_soon(self, callback, *args, priority=None, context=None):
+    def _write_trace_header(self):
+        header_lines.append("DECIMAL_DIGITS 9\n")
+        header_lines.append("DURATION 300\n")
+        header_lines.append("PALETTE Rainbow\n")
+        header_lines.append("ZOOM_X 16\n")
+        header_lines.append("ZOOM_Y 10\n")
+        header_lines.append("COLOR EXEC-E 0 orchid4\n\n")
+
+    def _define_line_name(self, line_name, priority):
+       if not any(line_name == line[0] and priority == line[1] for line in defined_lines):
+            #header_lines.append(f"LINE_NAME {self.line_count} {line_name}\n")
+            self.line_count += 1
+            defined_lines.add((line_name, priority, self.arrival_counter))
+
+    def _log_event(self, event_type, handle, current_time, color=None):
+        if self.line_count <= 99:
+            priority = getattr(handle, 'priority', 0)
+            agent_name = handle.ag_name if handle.ag_name != None else ""
+            task_name = handle._callback.__name__ if hasattr(handle._callback, '__name__') else str(handle._callback)
+            task_name = task_name.replace(" ", "_") 
+            if agent_name.endswith("$"):
+                line_name = f"{agent_name[:-1]}_p:{priority}"
+            else:
+                line_name = f"{agent_name}{task_name}_p:{priority}"
+
+            if  priority !=0: #True:
+                self._define_line_name(line_name, priority)
+                defined_events.add((line_name, event_type, current_time, color))
+
+
+
+    def call_soon(self, callback, *args, priority=None, ag_name=None, context=None):
         self._check_closed()
         if self._debug:
             self._check_thread()
             self._check_callback(callback, 'call_soon')
-        handle = self._call_soon(callback, args, priority, context)
+        handle = self._call_soon(callback, args, priority, ag_name, context)
+
+        if isTrace:
+            current_time = time.perf_counter() - self.start_time
+            self._log_event('START', handle, current_time)
+            self._log_event('READY-B', handle, current_time)
+
+
+
         #print(handle.priority)
         if handle._source_traceback:
             del handle._source_traceback[-1]
         return handle
     
-    def _call_soon(self, callback, args, priority=None, context=None):
+    def _call_soon(self, callback, args, priority=None, ag_name=None, context=None):
         if(priority == None):
             if(self._current_handle != None and getattr(self._current_handle, "priority") != None):
                 priority = self._current_handle.priority
             else:
                 priority = 0
 
-        handle = PrioritizedHandle(callback, args, self, priority, self.index, context)
-        self.index += 1
+        if(ag_name == None):
+            if(self._current_handle != None and getattr(self._current_handle, "ag_name") != None):
+                ag_name = self._current_handle.ag_name
+            else:
+                ag_name = None
+
+        handle = PrioritizedHandle(callback, args, self, priority, ag_name, context)
         if handle._source_traceback:
             del handle._source_traceback[-1]
         heapq.heappush(self._ready, handle)
@@ -46,16 +105,20 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
     
     def _add_callback(self, handle):
         if not handle._cancelled:
-            handle = PrioritizedHandle.from_handle(handle, self.index)
-            self.index += 1
+            handle = PrioritizedHandle.from_handle(handle,)
             heapq.heappush(self._ready, handle)
+            
+        if isTrace:
+            current_time = time.perf_counter() - self.start_time
+            self._log_event('START', handle, current_time)
+            self._log_event('READY-B', handle, current_time)
 
-    def call_soon_threadsafe(self, callback, *args, priority = None, context=None):
+    def call_soon_threadsafe(self, callback, *args, priority = None, ag_name = None, context=None):
         """Like call_soon(), but thread-safe."""
         self._check_closed()
         if self._debug:
             self._check_callback(callback, 'call_soon_threadsafe')
-        handle = self._call_soon(callback, args, priority, context)
+        handle = self._call_soon(callback, args, priority, ag_name, context)
         if handle._source_traceback:
             del handle._source_traceback[-1]
         self._write_to_self()
@@ -123,6 +186,11 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             handle._scheduled = False
             heapq.heappush(self._ready, handle)
 
+            if isTrace:
+                current_time = time.perf_counter() - self.start_time
+                self._log_event('START', handle, current_time)
+                self._log_event('READY-B', handle, current_time)
+
         # This is the only place where callbacks are actually *called*.
         # All other places just add them to ready.
         # Note: We run all currently scheduled callbacks, but not any
@@ -132,9 +200,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         ntodo = len(self._ready)
         for i in range(ntodo):
             handle = heapq.heappop(self._ready)
-            #print(handle._callback, handle.priority)
 
-            #print(handle.priority)
             if handle._cancelled:
                 continue
             if self._debug:
@@ -142,15 +208,40 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                     self._current_handle = handle
                     t0 = self.time()
                     handle._run()
+                    handle.execounter += 1
                     dt = self.time() - t0
                 finally:
                     self._current_handle = None
             else:
                 self._current_handle = handle
-                handle._run()
+
+                if isTrace:
+                    current_time = time.perf_counter() - self.start_time
+                    self._log_event('READY-E', handle, current_time)
+                    self._log_event('EXEC-B', handle, current_time)
+
+                
+                
+                try:
+                    handle._run()
+                    if isTrace:
+                        current_time = time.perf_counter() - self.start_time
+                        self._log_event('EXEC-E', handle, current_time)
+
+                    if handle.priority == 0:
+                        self.counterzero +=1
+                        #print(handle._callback, handle.priority)
+                    else:
+                        self.counterother +=1
+
+                    handle.execounter += 1
+
+                except Exception as e: 
+                    print("EXCEPCION CAPTURADA: ", e)
+
         handle = None  # Needed to break cycles when an exception occurs.
 
-    def create_task(self, coro, priority=None, name=None, context=None):
+    def create_task(self, coro, priority=None, ag_name=None, context=None):
 
         self._check_closed()
         if self._task_factory is None:
@@ -160,7 +251,13 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                 else:
                     priority = 0
 
-            task = PrioritizedTask(coro, loop=self, priority=priority, name=name, context=context)
+            if(ag_name == None):
+                if(self._current_handle != None and getattr(self._current_handle, "ag_name") != None):
+                    ag_name = self._current_handle.ag_name
+                else:
+                    ag_name = None
+
+            task = PrioritizedTask(coro, loop=self, priority=priority, ag_name=ag_name, context=context)
             if task._source_traceback:
                 del task._source_traceback[-1]
         else:
@@ -170,11 +267,9 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             else:
                 task = self._task_factory(self, coro, context=context)
 
-            task.set_name(name)
-
         return task
         
-    def call_at(self, when, callback, *args, priority=None, context=None):
+    def call_at(self, when, callback, *args, priority=None, ag_name=None, context=None):
             """Like call_later(), but uses an absolute time.
 
             Absolute time corresponds to the event loop's time() method.
@@ -185,21 +280,26 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                 else:
                     priority = 0
 
+            if(ag_name == None):
+                if(self._current_handle != None and getattr(self._current_handle, "ag_name") != None):
+                    ag_name = self._current_handle.ag_name
+                else:
+                    ag_name = None
+
             if when is None:
                 raise TypeError("when cannot be None")
             self._check_closed()
             if self._debug:
                 self._check_thread()
                 self._check_callback(callback, 'call_at')
-            timer = PrioritizedTimerHandle(when, callback, args, self, priority, self.index, context)
-            self.index += 1
+            timer = PrioritizedTimerHandle(when, callback, args, self, priority, ag_name, context)
             if timer._source_traceback:
                 del timer._source_traceback[-1]
             heapq.heappush(self._scheduled, timer)
             timer._scheduled = True
             return timer
     
-    def call_later(self, delay, callback, *args, priority=None, context=None):
+    def call_later(self, delay, callback, *args, priority=None, ag_name=None, context=None):
         """Arrange for a callback to be called at a given time.
 
         Return a Handle: an opaque object with a cancel() method that
@@ -217,7 +317,16 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         """
         if delay is None:
             raise TypeError('delay must not be None')
-        timer = self.call_at(self.time() + delay, callback, *args, priority = priority, context=context)
+        timer = self.call_at(self.time() + delay, callback, *args, priority = priority, ag_name=ag_name, context=context)
+
+        if isTrace:
+            current_time = time.perf_counter() - self.start_time            
+            self._log_event('DEADLINE', timer, current_time)
+            self._log_event('READY-B', timer, current_time)
+            end_time = current_time + delay
+            self._log_event('READY-E', timer, current_time = end_time)
+            self._log_event('BLOCK', timer, current_time = end_time)
+
         if timer._source_traceback:
             del timer._source_traceback[-1]
         return timer
@@ -259,15 +368,21 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
 
         return future.result()
     
-    def create_future(self, priority = None):
+    def create_future(self, priority = None, ag_name = None):
         """Create a Future object attached to the loop."""
         if(priority == None):
             if(self._current_handle != None and getattr(self._current_handle, "priority") != None):
                 priority = self._current_handle.priority
             else:
                 priority = 0
+
+        if(ag_name == None):
+            if(self._current_handle != None and getattr(self._current_handle, "ag_name") != None):
+                ag_name = self._current_handle.ag_name
+            else:
+                ag_name = None
         
-        return PrioritizedFuture(loop=self, priority = priority)
+        return PrioritizedFuture(loop=self, priority = priority, ag_name=ag_name)
     
     
 def _run_until_complete_cb(fut):
@@ -279,3 +394,31 @@ def _run_until_complete_cb(fut):
             return
     _get_loop(fut).stop()
 
+
+def write_trace_file():
+
+    #Recorrer las distintas lineas que deben ir en la cabecera y asignar los números de linea a los eventos
+    sorted_lines = sorted(defined_lines, key=lambda x: (x[1], x[2]))
+    line_counter = 0
+    for (line_name, _, _) in sorted_lines:
+        header_lines.append(f"LINE_NAME {line_counter} {line_name}\n")
+        for (line_name2, event_type, current_time, color) in defined_events:
+            if line_name2 == line_name:
+                log_event = f"{current_time:.9f} {event_type} {line_counter}"
+                if color:
+                    log_line += f" {color}"
+                events_queue.append((current_time, log_event + "\n"))
+        line_counter += 1
+
+
+    # Ordenar eventos por tiempo antes de escribirlos en el archivo
+    sorted_events = sorted(events_queue, key=lambda x: x[0])
+    with open("trace.ktr", "w") as trace_file:
+        trace_file.writelines(header_lines)
+        for _, event in sorted_events:
+            trace_file.write(event)
+
+# Asegúrate de cerrar el archivo de traza al final del script
+import atexit
+atexit.register(write_trace_file)
+atexit.register(TRACE_FILE.close)

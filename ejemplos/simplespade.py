@@ -2,8 +2,7 @@ import asyncio
 import datetime
 import spade
 import sys
-sys.path.append("..")
-from base_events import PrioritizedEventLoop
+from PriorityAsyncio.base_events import PrioritizedEventLoop
 
 class SimpleSenderAgent(spade.agent.Agent):
     class SendBehaviour(spade.behaviour.PeriodicBehaviour):
@@ -14,7 +13,7 @@ class SimpleSenderAgent(spade.agent.Agent):
             self.kill()
 
     async def setup(self):
-        b = self.SendBehaviour(period=0.5)
+        b = self.SendBehaviour(period=0.5, priority = 1)
         self.add_behaviour(b)
 
 class SimpleReceiverAgent(spade.agent.Agent):
@@ -26,7 +25,7 @@ class SimpleReceiverAgent(spade.agent.Agent):
                 self.kill()
 
     async def setup(self):
-        b = self.ReceiveBehaviour()
+        b = self.ReceiveBehaviour(priority = 2)
         self.add_behaviour(b)
 
 async def main():
@@ -39,12 +38,21 @@ async def main():
     print("Sender agent started")
 
     # Wait until agents finish their jobs
+    print("Comienza el sleep")
     await asyncio.sleep(1)
     await sender_agent.stop()
     await receiver_agent.stop()
 
 if __name__ == "__main__":
-    loop = PrioritizedEventLoop()
-    asyncio.set_event_loop(loop)
+
+    # OPCIÓN 1
+    #loop = PrioritizedEventLoop()
+    #asyncio.set_event_loop(loop)
+    #asyncio.run(main()) #NO EJECUTA PrioritizedEventLoop!!
+
+    # OPCIÓN 2
     spade.run(main())
+
+    # OPCIÓN 3
+    #loop = PrioritizedEventLoop()
     #loop.run_until_complete(main())

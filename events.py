@@ -13,73 +13,39 @@ _event_loop_policy = None
 _lock = threading.Lock()
 
 class PrioritizedHandle(asyncio.Handle):
-    
-    def __init__(self, callback, args, loop, priority, index, context=None):
-        super().__init__(callback, args, loop, context=None)
+
+    def __init__(self, callback, args, loop, priority, ag_name, context=None):
+        super().__init__(callback, args, loop, context)
         self.priority = priority
-        self.index = index
+        self.execounter = 0
+        self.ag_name = ag_name
+        self._when = None  # Ensure _when attribute exists for comparison
 
     def __lt__(self, other):
         if self.priority == other.priority:
-            return self.index < other.index
+            return self.execounter < other.execounter
         else:
             return self.priority < other.priority
-    
-    def __gt__(self,other):
-        if self.priority == other.priority:
-            return self.index > other.index
-        else:
-            return self.priority > other.priority
-    
+
     @classmethod
-    def from_handle(cls, handle, index):
-        return PrioritizedHandle(handle._callback, handle._args, handle._loop, priority = 0, index = index, context = handle._context )
-
-
-    """
-    def _run(self):
-        try:
-            print(self.priority)
-            self._context.run(self._callback, priority=self.priority, *self._args)
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as exc:
-            cb = format_helpers._format_callback_source(
-                self._callback, self._args,
-                debug=self._loop.get_debug())
-            msg = f'Exception in callback {cb}'
-            context = {
-                'message': msg,
-                'exception': exc,
-                'handle': self,
-            }
-            if self._source_traceback:
-                context['source_traceback'] = self._source_traceback
-            self._loop.call_exception_handler(context)
-        self = None  # Needed to break cycles when an exception occurs.
-    """
+    def from_handle(cls, handle):
+        return PrioritizedHandle(handle._callback, handle._args, handle._loop, priority=0, ag_name=None, context=handle._context)
 
 class PrioritizedTimerHandle(asyncio.TimerHandle):
-    def __init__(self, when, callback, args, loop, priority, index, context=None):
-        super().__init__(when, callback, args, loop, context=None)
+    def __init__(self, when, callback, args, loop, priority, ag_name=None, context=None):
+        super().__init__(when, callback, args, loop, context)
         self.priority = priority
-        self.index = index
+        self.ag_name = ag_name
+        self.execounter = 0
 
     def __lt__(self, other):
-        if not getattr(self, "_when", False) and not getattr(other, "_when", False) and self._when != other._when:
-            return self._when < other._when
-        elif self.priority == other.priority:
-            return self.index < other.index
+        if self.priority == other.priority:
+            if self._when is not None and other._when is not None and self._when != other._when:
+                return self._when < other._when
+            return self.execounter < other.execounter
         else:
             return self.priority < other.priority
-    
-    def __gt__(self,other):
-        if not getattr(self, "_when", False) and not getattr(other, "_when", False) and self._when != other._when:
-            return self._when > other._when
-        elif self.priority == other.priority:
-            return self.index > other.index
-        else:
-            return self.priority > other.priority
+
     
     
 def get_event_loop():

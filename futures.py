@@ -1,5 +1,5 @@
 import asyncio
-import events
+from PriorityAsyncio import events
 from asyncio import base_futures, exceptions, format_helpers
 import sys
 from types import GenericAlias
@@ -59,7 +59,7 @@ class PrioritizedFuture:
     __log_traceback = False
 
     
-    def __init__(self, priority, *, loop=None):
+    def __init__(self, priority, ag_name, *, loop=None):
         """Initialize the future.
 
         The optional event_loop argument allows explicitly setting the event
@@ -76,6 +76,7 @@ class PrioritizedFuture:
                 sys._getframe(1))
             
         self.priority = priority
+        self.ag_name = ag_name
 
     def __repr__(self):
         return _future_repr(self)
@@ -160,7 +161,7 @@ class PrioritizedFuture:
 
         self._callbacks[:] = []
         for callback, ctx in callbacks:
-            self._loop.call_soon(callback, self, priority=self.priority, context=ctx)
+            self._loop.call_soon(callback, self, priority=self.priority, ag_name= self.ag_name, context=ctx)
 
     def cancelled(self):
         """Return True if the future was cancelled."""
@@ -174,7 +175,7 @@ class PrioritizedFuture:
         scheduled with call_soon.
         """
         if self._state != _PENDING:
-            self._loop.call_soon(fn, self, priority=self.priority, context=context)
+            self._loop.call_soon(fn, self, priority=self.priority, ag_name=self.ag_name, context=context)
         else:
             if context is None:
                 context = contextvars.copy_context()

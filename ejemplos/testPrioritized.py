@@ -1,12 +1,19 @@
-import asyncio
 import sys
-sys.path.append("..")
-import base_events, tasks, locks
+import os
+import asyncio
 import random
 
+# Agrega el directorio raíz a sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+# Importaciones de tus módulos
+from PriorityAsyncio.base_events import PrioritizedEventLoop
+from PriorityAsyncio.tasks import PrioritizedTask
+from PriorityAsyncio import locks
 
 
-loop = base_events.PrioritizedEventLoop()
+
+loop = PrioritizedEventLoop()
 asyncio.set_event_loop(loop)  
 
 # Usage
@@ -14,9 +21,6 @@ async def example_task(priority, name, event):
     print(f'Task {name} started with priority {priority}')
     await event.wait() # Introduce a delay for each task
     print(f'Task {name} finished with priority {priority} ')
-
-
-
 
 
 async def main(loop):

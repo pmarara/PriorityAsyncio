@@ -5,22 +5,21 @@ import time
 import asyncio
 import spade
 import sys
-sys.path.append("..")
-from base_events import PrioritizedEventLoop
+from PriorityAsyncio.base_events import PrioritizedEventLoop
+import PriorityAsyncio.tasks 
+import PriorityAsyncio.locks
 
-# If using uvloop, uncomment these lines
-#import uvloop
-#asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
+#start_event = PriorityAsyncio.locks.PrioritizedEvent(priority=-1001)  # Event to signal agents to start sending messages
 
 class PushPullAgent(spade.agent.Agent):
 
     async def setup(self):
         self.value = random.randint(1, 1000)
         self.messages_sent = 0  # Contador de mensajes enviados por el agente
-
+        self.priority = -self.value
         start_at = datetime.datetime.now() + datetime.timedelta(seconds=5)
-        self.add_behaviour(self.PushPullBehaviour(period=2, start_at=start_at))
+        self.add_behaviour(self.PushPullBehaviour(period=2, start_at=start_at)) # , priority = self.priority
         template = spade.template.Template(metadata={"performative": "PUSHPULL"})
         self.add_behaviour(self.RecvBehaviour(), template)
         template = spade.template.Template(metadata={"performative": "REPLY"})
@@ -40,7 +39,8 @@ class PushPullAgent(spade.agent.Agent):
     class PushPullBehaviour(spade.behaviour.PeriodicBehaviour):
 
         async def run(self):
-            k = 5 # El número de amigos está fijado a 1, se puede modificar
+            #await start_event.wait()  # Wait until the experiment starts
+            k = 5 # El número de amigos está fijado a 5, se puede modificar
             random_contacts = random.sample(self.agent.contacts, k)
 
             # Enviar solicitud PUSHPULL a los amigos seleccionados
@@ -51,8 +51,6 @@ class PushPullAgent(spade.agent.Agent):
                 self.agent.messages_sent += 1  # Incrementar el contador de mensajes enviados
 
                    
-            
-
     # Comportamiento encargado de gestionar la llegada de un mensaje pushpull
     class RecvBehaviour(spade.behaviour.CyclicBehaviour):
         async def run(self):
@@ -75,66 +73,92 @@ class PushPullAgent(spade.agent.Agent):
                 self.agent.add_value(body["value"])
 
 async def main():
+
+
+    num_experiments = 1
     count=50
-    agents = []
-    start_time = time.time()
 
-    print("Creating {} agents...".format(count))
-    for x in range(1, count + 1):
-        print("Creating agent {}...".format(x))
-        # nos guardamos la lista de agentes para poder visualizar el estado del proceso gossiping
-        # el servidor está fijado a gtirouter.dsic.upv.es, si se tiene un serviodor XMPP en local, se puede sustituir por localhost
-        agents.append(PushPullAgent("agent_{}@gtirouter.dsic.upv.es".format(x), "test"))
+    list_elapsed_time = []
+    list_total_messages = []
+    list_messages_second = []
+    list_average_messages_per_agent = []
 
-    # este tiempo trata de esperar que todos los agentes estan registrados, depende de la cantidad de agentes que se lancen
-    await asyncio.sleep(3)
+    for j in range (0,num_experiments): 
+        print(j)
+        agents = []
+        start_time = time.time()
 
-    # se le pasa a cada agente la lista de contactos
-    for ag in agents:
-        ag.add_contacts(agents)
-        ag.value = 0
+        print("Creating {} agents...".format(count))
+        for x in range(1, count+1):
+            print("Creating agent {}...".format(x))
+            # nos guardamos la lista de agentes para poder visualizar el estado del proceso gossiping
+            # el servidor está fijado a gtirouter.dsic.upv.es, si se tiene un serviodor XMPP en local, se puede sustituir por localhost
+            a = PushPullAgent("agent_{}@gtirouter.dsic.upv.es".format(x), "test")
+            a.priority = -x
+            agents.append(a)
 
-    # se lanzan todos los agentes
-    for ag in agents:
-        await ag.start()
+        # este tiempo trata de esperar que todos los agentes estan registrados, depende de la cantidad de agentes que se lancen
+        await asyncio.sleep(3)
 
-    # este tiempo trata de esperar que todos los agentes estan ready, depende de la cantidad de agentes que se lancen
-    await asyncio.sleep(1)
+        # se le pasa a cada agente la lista de contactos
+        for ag in agents:
+            ag.add_contacts(agents)
+            ag.value = 0
 
-    # este bucle imprime los valores que almacena cada agente y termina cuando todos tienen el mismo valor (consenso)
-    while True:
-        try:
-            await asyncio.sleep(1)
-            status = [ag.value for ag in agents]
-            print("STATUS: {}".format(status))
-            if len(set(status)) <= 1:
-                print("Gossip done.")
+        # se lanzan todos los agentes
+        for ag in agents:
+
+            await ag.start()
+
+            #loop = asyncio.get_event_loop()
+            #task = loop.create_task(ag.start(), priority = -1001)
+            #await task
+
+
+        # este tiempo trata de esperar que todos los agentes estan ready, depende de la cantidad de agentes que se lancen
+        await asyncio.sleep(1)
+
+        #start_event.set()
+        #start_time = time.time()
+
+        # este bucle imprime los valores que almacena cada agente y termina cuando todos tienen el mismo valor (consenso)
+        while True:
+            try:
+                await asyncio.sleep(1)
+                status = [ag.value for ag in agents]
+                print("STATUS: {}".format(status))
+                if len(set(status)) <= 1:
+                    print("Gossip done.")
+                    elapsed_time = time.time() - start_time
+                    break
+            except KeyboardInterrupt:
                 break
-        except KeyboardInterrupt:
-            break
 
-    # se para a todos los agentes
-    for ag in agents:
-        await ag.stop()
-    print("Agents finished")
+        # se para a todos los agentes
+        for ag in agents:
+            await ag.stop()
+        print("Agents finished")
 
-    # Imprimir resultados
-    elapsed_time = time.time() - start_time
-    total_messages_sent = sum(ag.messages_sent for ag in agents)
-    print("Elapsed Time: {:.2f} seconds".format(elapsed_time))
-    print("Total Messages Sent: {}".format(total_messages_sent))
-    print("Messages/Second: {:.2f}".format(total_messages_sent/elapsed_time))
-    print("Average Messages Sent per Agent: {:.2f}".format(total_messages_sent / count))
-    print("Agents finished")
+        # Imprimir resultados
+        total_messages_sent = sum(ag.messages_sent for ag in agents)
+        #print("Elapsed Time: {:.2f} seconds".format(elapsed_time))
+        list_elapsed_time.append(elapsed_time)
+        #print("Total Messages Sent: {}".format(total_messages_sent))
+        list_total_messages.append(total_messages_sent)
+        #print("Messages/Second: {:.2f}".format(total_messages_sent/elapsed_time))
+        list_messages_second.append(total_messages_sent/elapsed_time)
+        #print("Average Messages Sent per Agent: {:.2f}".format(total_messages_sent / count))
+        list_average_messages_per_agent.append(total_messages_sent / count)
+
+    print(list_elapsed_time)
+    print(list_total_messages)
+    print(list_messages_second)
+    print(list_average_messages_per_agent)
+    print("Average Elapsed Time: {:.2f} seconds".format((sum(list_elapsed_time)/num_experiments)))   
+    print("AverageTotal Messages Sent: {}".format((sum(list_total_messages)/num_experiments)))
+    print("Average Messages/Second: {:.2f}".format((sum(list_messages_second)/num_experiments)))
+    print("Average Messages Sent per Agent: {:.2f}".format((sum(list_average_messages_per_agent)/num_experiments)))
 
 if __name__ == "__main__":
 
-    loop = PrioritizedEventLoop()
-    #loop = asyncio.events.get_event_loop()
-
-    asyncio.set_event_loop(loop)  
-
-    if loop.is_running():
-        loop.create_task(main())
-    else:
         spade.run(main())

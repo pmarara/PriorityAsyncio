@@ -1,4 +1,5 @@
 import asyncio
+from PriorityAsyncio import events
 
 class PrioritizedEvent(asyncio.Event):
     def __init__(self, priority = None):
@@ -14,6 +15,7 @@ class PrioritizedEvent(asyncio.Event):
         if self._value:
             return True
 
+        self._loop = events.get_running_loop()
         fut = self._loop.create_future(priority = priority)
         self._waiters.append(fut)
         try:
