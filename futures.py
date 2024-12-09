@@ -11,7 +11,6 @@ _PENDING = asyncio.base_futures._PENDING
 _CANCELLED = asyncio.base_futures._CANCELLED
 _FINISHED = asyncio.base_futures._FINISHED
 
-# Needed for testing purposes.
 _PyFuture = asyncio.Future
 
 isfuture = base_futures.isfuture
@@ -35,25 +34,14 @@ class PrioritizedFuture:
     (In Python 3.4 or later we may be able to unify the implementations.)
     """
 
-    # Class variables serving as defaults for instance variables.
     _state = _PENDING
     _result = None
     _exception = None
     _loop = None
     _source_traceback = None
     _cancel_message = None
-    # A saved CancelledError for later chaining as an exception context.
     _cancelled_exc = None
 
-    # This field is used for a dual purpose:
-    # - Its presence is a marker to declare that a class implements
-    #   the Future protocol (i.e. is intended to be duck-type compatible).
-    #   The value must also be not-None, to enable a subclass to declare
-    #   that it is not compatible by setting this to None.
-    # - It is set by __iter__() below so that Task._step() can tell
-    #   the difference between
-    #   `await Future()` or`yield from Future()` (correct) vs.
-    #   `yield Future()` (incorrect).
     _asyncio_future_blocking = False
 
     __log_traceback = False
@@ -78,13 +66,13 @@ class PrioritizedFuture:
         self.priority = priority
         self.ag_name = ag_name
 
+
     def __repr__(self):
         return _future_repr(self)
     
+
     def __del__(self):
         if not self.__log_traceback:
-            # set_exception() was not called, or result() or exception()
-            # has consumed the exception
             return
         exc = self._exception
         context = {
@@ -99,9 +87,11 @@ class PrioritizedFuture:
 
     __class_getitem__ = classmethod(GenericAlias)
 
+
     @property
     def _log_traceback(self):
         return self.__log_traceback
+
 
     @_log_traceback.setter
     def _log_traceback(self, val):
@@ -109,12 +99,14 @@ class PrioritizedFuture:
             raise ValueError('_log_traceback can only be set to False')
         self.__log_traceback = False
 
+
     def get_loop(self):
         """Return the event loop the Future is bound to."""
         loop = self._loop
         if loop is None:
             raise RuntimeError("Future object is not initialized.")
         return loop
+
 
     def _make_cancelled_error(self):
         """Create the CancelledError to raise if the Future is cancelled.
@@ -133,6 +125,7 @@ class PrioritizedFuture:
             exc = exceptions.CancelledError(self._cancel_message)
         return exc
     
+
     def cancel(self, msg=None):
         """Cancel the future and schedule callbacks.
 
@@ -163,9 +156,11 @@ class PrioritizedFuture:
         for callback, ctx in callbacks:
             self._loop.call_soon(callback, self, priority=self.priority, ag_name= self.ag_name, context=ctx)
 
+
     def cancelled(self):
         """Return True if the future was cancelled."""
         return self._state == _CANCELLED
+
 
     def add_done_callback(self, fn, *, context=None):
         """Add a callback to be run when the future becomes done.
@@ -181,6 +176,7 @@ class PrioritizedFuture:
                 context = contextvars.copy_context()
             self._callbacks.append((fn, context))
 
+
     def remove_done_callback(self, fn):
         """Remove all instances of a callback from the "call when done" list.
 
@@ -195,7 +191,6 @@ class PrioritizedFuture:
         return removed_count
 
 
-    
     def result(self):
         """Return the result this future represents.
 
@@ -213,6 +208,7 @@ class PrioritizedFuture:
             raise self._exception.with_traceback(self._exception_tb)
         return self._result
     
+
     def exception(self):
         """Return the exception that was set on this future.
 
@@ -228,7 +224,7 @@ class PrioritizedFuture:
             raise exceptions.InvalidStateError('Exception is not set.')
         self.__log_traceback = False
         return self._exception
-    # So-called internal methods (note: no set_running_or_notify_cancel()).
+
 
     def set_result(self, result):
         """Mark the future done and set its result.
@@ -241,6 +237,7 @@ class PrioritizedFuture:
         self._result = result
         self._state = _FINISHED
         self.__schedule_callbacks()
+
 
     def set_exception(self, exception):
         """Mark the future done and set an exception.
@@ -265,14 +262,16 @@ class PrioritizedFuture:
         self.__schedule_callbacks()
         self.__log_traceback = True
 
+
     def __await__(self):
         if not self.done():
             self._asyncio_future_blocking = True
-            yield self  # This tells Task to wait for completion.
+            yield self 
         if not self.done():
             raise RuntimeError("await wasn't used with future")
-        return self.result()  # May raise too.
+        return self.result()  
     
+
     def done(self):
         """Return True if the future is done.
 
@@ -281,12 +280,11 @@ class PrioritizedFuture:
         """
         return self._state != _PENDING
 
-    __iter__ = __await__  # make compatible with 'yield from'.
+    __iter__ = __await__ 
 
 
 def _get_loop(fut):
-    # Tries to call Future.get_loop() if it's available.
-    # Otherwise fallbacks to using the old '_loop' property.
+
     try:
         get_loop = fut.get_loop
     except AttributeError:
@@ -300,16 +298,14 @@ def _future_repr(future):
     info = ' '.join(_future_repr_info(future))
     return f'<{future.__class__.__name__} {info}>'
 
+
 def _future_repr_info(future):
-    # (Future) -> str
     """helper function for Future.__repr__"""
     info = [future._state.lower()]
     if future._state == _FINISHED:
         if future._exception is not None:
             info.append(f'exception={future._exception!r}')
         else:
-            # use reprlib to limit the length of the output, especially
-            # for very long strings
             result = reprlib.repr(future._result)
             info.append(f'result={result}')
     if future._callbacks:
@@ -318,6 +314,7 @@ def _future_repr_info(future):
         frame = future._source_traceback[-1]
         info.append(f'created at {frame[0]}:{frame[1]}')
     return info
+
 
 def _format_callbacks(cb):
     """helper function for Future.__repr__"""

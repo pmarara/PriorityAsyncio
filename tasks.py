@@ -48,8 +48,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
         if self._source_traceback:
             del self._source_traceback[-1]
         if not coroutines.iscoroutine(coro):
-            # raise after Future.__init__(), attrs are required for __del__
-            # prevent logging for pending task in __del__
+
             self._log_destroy_pending = False
             raise TypeError(f"a coroutine was expected, got {coro!r}")
 
@@ -75,6 +74,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
 
         self.priority = priority
 
+
     def __del__(self):
         if self._state == futures._PENDING and self._log_destroy_pending:
             context = {
@@ -88,26 +88,34 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
 
     __class_getitem__ = classmethod(GenericAlias)
 
+
     def __repr__(self):
         return base_tasks._task_repr(self)
+
 
     def get_coro(self):
         return self._coro
 
+
     def get_context(self):
         return self._context
+
 
     def get_name(self):
         return self._name
 
+
     def set_name(self, value):
         self._name = str(value)
+
 
     def set_result(self, result):
         raise RuntimeError('Task does not support set_result operation')
 
+
     def set_exception(self, exception):
         raise RuntimeError('Task does not support set_exception operation')
+
 
     def get_stack(self, *, limit=None):
         """Return the list of stack frames for this task's coroutine.
@@ -132,6 +140,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
         """
         return asyncio.base_tasks._task_get_stack(self, limit)
 
+
     def print_stack(self, *, limit=None, file=None):
         """Print the stack or traceback for this task's coroutine.
 
@@ -142,6 +151,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
         to sys.stderr.
         """
         return asyncio.base_tasks._task_print_stack(self, limit, file)
+
 
     def cancel(self, msg=None):
         """Request that this task cancel itself.
@@ -185,6 +195,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
         self._cancel_message = msg
         return True
 
+
     def cancelling(self):
         """Return the count of the task's cancellation requests.
 
@@ -192,6 +203,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
         and may be decremented using .uncancel().
         """
         return self._num_cancels_requested
+
 
     def uncancel(self):
         """Decrement the task's count of cancellation requests.
@@ -206,6 +218,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
             if self._num_cancels_requested == 0:
                 self._must_cancel = False
         return self._num_cancels_requested
+
 
     def __eager_start(self):
         prev_task = asyncio._swap_current_task(self._loop, self)
@@ -222,9 +235,10 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
             finally:
                 if self.done():
                     self._coro = None
-                    self = None  # Needed to break cycles when an exception occurs.
+                    self = None  
                 else:
                     _register_task(self)
+
 
     def __step(self, exc=None):
         if self.done():
@@ -241,28 +255,27 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
             self.__step_run_and_handle_result(exc)
         finally:
             asyncio._leave_task(self._loop, self)
-            self = None  # Needed to break cycles when an exception occurs.
+            self = None  
+
 
     def __step_run_and_handle_result(self, exc):
         coro = self._coro
         try:
             if exc is None:
-                # We use the `send` method directly, because coroutines
-                # don't have `__iter__` and `__next__` methods.
                 result = coro.send(None)
             else:
                 result = coro.throw(exc)
         except StopIteration as exc:
             if self._must_cancel:
-                # Task is cancelled right before coro stops.
+
                 self._must_cancel = False
                 super().cancel(msg=self._cancel_message)
             else:
                 super().set_result(exc.value)
         except asyncio.exceptions.CancelledError as exc:
-            # Save the original exception so we can chain it later.
+
             self._cancelled_exc = exc
-            super().cancel()  # I.e., Future.cancel(self).
+            super().cancel() 
         except (KeyboardInterrupt, SystemExit) as exc:
             super().set_exception(exc)
             raise
@@ -271,7 +284,7 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
         else:
             blocking = getattr(result, '_asyncio_future_blocking', None)
             if blocking is not None:
-                # Yielded Future must come from Future.__iter__().
+
                 if futures._get_loop(result) is not self._loop:
                     new_exc = RuntimeError(
                         f'Task {self!r} got Future '
@@ -301,50 +314,43 @@ class PrioritizedTask(futures._PyFuture):  # Inherit Python Task implementation
                         self.__step, new_exc, priority=self.priority, context=self._context)
 
             elif result is None:
-                # Bare yield relinquishes control for one event loop iteration.
                 self._loop.call_soon(self.__step, priority=self.priority, context=self._context)
             elif inspect.isgenerator(result):
-                # Yielding a generator is just wrong.
                 new_exc = RuntimeError(
                     f'yield was used instead of yield from for '
                     f'generator in task {self!r} with {result!r}')
                 self._loop.call_soon(
                     self.__step, new_exc,priority=self.priority, context=self._context)
             else:
-                # Yielding something else is an error.
                 new_exc = RuntimeError(f'Task got bad yield: {result!r}')
                 self._loop.call_soon(
                     self.__step, new_exc, priority=self.priority, context=self._context)
         finally:
-            self = None  # Needed to break cycles when an exception occurs.
+            self = None 
+
 
     def __wakeup(self, future):
-        #print("Task wakeup")
         try:
             future.result()
         except BaseException as exc:
-            # This may also be a cancellation.
+
             self.__step(exc)
         else:
-            # Don't pass the value of `future.result()` explicitly,
-            # as `Future.__iter__` and `Future.__await__` don't need it.
-            # If we call `_step(value, None)` instead of `_step()`,
-            # Python eval loop would use `.send(value)` method call,
-            # instead of `__next__()`, which is slower for futures
-            # that return non-generator iterators from their `__iter__`.
+
             self.__step()
-        self = None  # Needed to break cycles when an exception occurs.
+        self = None  
 
 
 def create_task(coro, *, priority=0, name=None, context=None):
     loop = asyncio.events.get_running_loop()
     if context is None:
-        # Use legacy API if context is not needed
+
         task = loop.create_task(coro,priority=priority, name=name)
     else:
         task = loop.create_task(coro,priority=priority, name=name, context=context)
 
     return task
+
 
 def ensure_future(coro_or_future, priority = 0, *, loop=None):
     """Wrap a coroutine or an awaitable in a future.
@@ -377,9 +383,11 @@ def ensure_future(coro_or_future, priority = 0, *, loop=None):
             coro_or_future.close()
         raise
 
+
 def _register_task(task):
     """Register an asyncio Task scheduled to run on an event loop."""
     _scheduled_tasks.add(task)
+
 
 @types.coroutine
 def __sleep0():
@@ -391,6 +399,7 @@ def __sleep0():
     instead of creating a Future object.
     """
     yield
+
 
 async def sleep(delay, result=None, priority = 0):
     """Coroutine that completes after a given time (in seconds)."""

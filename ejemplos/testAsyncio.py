@@ -13,8 +13,6 @@ async def example_task(priority, name, event):
 
 
 
-
-
 async def main():
 
     event = asyncio.Event()

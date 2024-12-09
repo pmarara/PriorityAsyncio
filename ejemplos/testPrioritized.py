@@ -6,7 +6,6 @@ import random
 # Agrega el directorio raíz a sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-# Importaciones de tus módulos
 from PriorityAsyncio.base_events import PrioritizedEventLoop
 from PriorityAsyncio.tasks import PrioritizedTask
 from PriorityAsyncio import locks
@@ -35,19 +34,16 @@ async def main(loop):
 
     for i, name in enumerate(task_names):
 
-        #loop.create_task(tasks.PrioritizedTask(example_task(priorities[i], name, event), priority = priorities[i]))
 
-        loop.create_task(example_task(priorities[i], name, event), priority = priorities[i])
+        loop.create_task(example_task(priorities[i], name, event), ag_name= f'Task_{name}', priority = priorities[i]) #, priority = priorities[i]
 
     
     await asyncio.sleep(2)
 
-
+    print("Event set.")
     event.set()
 
 
-# Uncomment if using custom loop policy (optional)
-# asyncio.set_event_loop_policy(PrioritizedEventLoopPolicy())
 
 loop.run_until_complete(main(loop))
 

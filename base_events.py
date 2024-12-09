@@ -14,7 +14,7 @@ _MIN_CANCELLED_TIMER_HANDLES_FRACTION = 0.5
 MAXIMUM_SELECT_TIMEOUT = 24 * 3600
 TRACE_FILE = open("trace.ktr", "w")
 
-isTrace = True
+isTrace = True # Especifica si se genera o no una traza para Kiwi
 
 defined_lines = set()
 defined_events = set()
@@ -25,16 +25,15 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
 
     def __init__(self):
         super().__init__()
-        self._ready = []  #(priority queue)
-        self.counterzero = 0
-        self.counterother = 0
+        self._ready = []  # Cola de prioridad
         self.start_time = time.perf_counter()
         self.line_count = 0
         self._write_trace_header()
-        self.arrival_counter = 0  # Contador para el orden de llegada
+        self.arrival_counter = 0  # Contador para el orden de llegada de los eventos
         
 
-    def _write_trace_header(self):
+    # Método que escribe la cabecera de la traza
+    def _write_trace_header(self): 
         header_lines.append("DECIMAL_DIGITS 9\n")
         header_lines.append("DURATION 300\n")
         header_lines.append("PALETTE Rainbow\n")
@@ -42,12 +41,15 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         header_lines.append("ZOOM_Y 10\n")
         header_lines.append("COLOR EXEC-E 0 orchid4\n\n")
 
+
+    # Método que guarda nuevas líneas para la traza
     def _define_line_name(self, line_name, priority):
        if not any(line_name == line[0] and priority == line[1] for line in defined_lines):
-            #header_lines.append(f"LINE_NAME {self.line_count} {line_name}\n")
             self.line_count += 1
             defined_lines.add((line_name, priority, self.arrival_counter))
 
+
+    # Método que guarda los eventos
     def _log_event(self, event_type, handle, current_time, color=None):
         if self.line_count <= 99:
             priority = getattr(handle, 'priority', 0)
@@ -57,12 +59,10 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             if agent_name.endswith("$"):
                 line_name = f"{agent_name[:-1]}_p:{priority}"
             else:
-                line_name = f"{agent_name}{task_name}_p:{priority}"
-
-            if  priority !=0: #True:
+                line_name = f"{agent_name}{task_name}_p:{priority}"  
+            if  priority !=0: # Aquí se filtra qué eventos se quieren mostrar en la traza
                 self._define_line_name(line_name, priority)
                 defined_events.add((line_name, event_type, current_time, color))
-
 
 
     def call_soon(self, callback, *args, priority=None, ag_name=None, context=None):
@@ -77,13 +77,11 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             self._log_event('START', handle, current_time)
             self._log_event('READY-B', handle, current_time)
 
-
-
-        #print(handle.priority)
         if handle._source_traceback:
             del handle._source_traceback[-1]
         return handle
     
+
     def _call_soon(self, callback, args, priority=None, ag_name=None, context=None):
         if(priority == None):
             if(self._current_handle != None and getattr(self._current_handle, "priority") != None):
@@ -103,6 +101,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         heapq.heappush(self._ready, handle)
         return handle
     
+
     def _add_callback(self, handle):
         if not handle._cancelled:
             handle = PrioritizedHandle.from_handle(handle,)
@@ -112,6 +111,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             current_time = time.perf_counter() - self.start_time
             self._log_event('START', handle, current_time)
             self._log_event('READY-B', handle, current_time)
+
 
     def call_soon_threadsafe(self, callback, *args, priority = None, ag_name = None, context=None):
         """Like call_soon(), but thread-safe."""
@@ -123,6 +123,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             del handle._source_traceback[-1]
         self._write_to_self()
         return handle
+
 
     def _run_once(self):
         """Run one full iteration of the event loop.
@@ -136,8 +137,6 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         if (sched_count > _MIN_SCHEDULED_TIMER_HANDLES and
             self._timer_cancelled_count / sched_count >
                 _MIN_CANCELLED_TIMER_HANDLES_FRACTION):
-            # Remove delayed calls that were cancelled if their number
-            # is too high
             new_scheduled = []
             for handle in self._scheduled:
                 if handle._cancelled:
@@ -149,7 +148,6 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             self._scheduled = new_scheduled
             self._timer_cancelled_count = 0
         else:
-            # Remove delayed calls that were cancelled from head of queue.
             while self._scheduled and self._scheduled[0]._cancelled:
                 self._timer_cancelled_count -= 1
                 handle = heapq.heappop(self._scheduled)
@@ -161,22 +159,17 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         if self._ready or self._stopping:
             timeout = 0
         elif self._scheduled:
-            # Compute the desired timeout.
             timeout = self._scheduled[0]._when - self.time()
             if timeout > MAXIMUM_SELECT_TIMEOUT:
                 timeout = MAXIMUM_SELECT_TIMEOUT
             elif timeout < 0:
                 timeout = 0
 
-        #print(f"READY: {self._ready}")
-        #print(f"SCHED: {self._scheduled}")
-        #print(f"TIMEOUT: {timeout}")
         event_list = self._selector.select(timeout)
         self._process_events(event_list)
-        # Needed to break cycles when an exception occurs.
         event_list = None
 
-        # Handle 'later' callbacks that are ready.
+
         end_time = self.time() + self._clock_resolution
         while self._scheduled:
             handle = self._scheduled[0]
@@ -191,12 +184,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                 self._log_event('START', handle, current_time)
                 self._log_event('READY-B', handle, current_time)
 
-        # This is the only place where callbacks are actually *called*.
-        # All other places just add them to ready.
-        # Note: We run all currently scheduled callbacks, but not any
-        # callbacks scheduled by callbacks run this time around --
-        # they will be run the next time (after another I/O poll).
-        # Use an idiom that is thread-safe without using locks.
+
         ntodo = len(self._ready)
         for i in range(ntodo):
             handle = heapq.heappop(self._ready)
@@ -210,6 +198,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                     handle._run()
                     handle.execounter += 1
                     dt = self.time() - t0
+
                 finally:
                     self._current_handle = None
             else:
@@ -219,8 +208,6 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                     current_time = time.perf_counter() - self.start_time
                     self._log_event('READY-E', handle, current_time)
                     self._log_event('EXEC-B', handle, current_time)
-
-                
                 
                 try:
                     handle._run()
@@ -228,18 +215,13 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                         current_time = time.perf_counter() - self.start_time
                         self._log_event('EXEC-E', handle, current_time)
 
-                    if handle.priority == 0:
-                        self.counterzero +=1
-                        #print(handle._callback, handle.priority)
-                    else:
-                        self.counterother +=1
-
                     handle.execounter += 1
 
                 except Exception as e: 
                     print("EXCEPCION CAPTURADA: ", e)
 
-        handle = None  # Needed to break cycles when an exception occurs.
+        handle = None 
+
 
     def create_task(self, coro, priority=None, ag_name=None, context=None):
 
@@ -262,13 +244,13 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
                 del task._source_traceback[-1]
         else:
             if context is None:
-                # Use legacy API if context is not needed
                 task = self._task_factory(self, coro)
             else:
                 task = self._task_factory(self, coro, context=context)
 
         return task
         
+
     def call_at(self, when, callback, *args, priority=None, ag_name=None, context=None):
             """Like call_later(), but uses an absolute time.
 
@@ -299,6 +281,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             timer._scheduled = True
             return timer
     
+
     def call_later(self, delay, callback, *args, priority=None, ag_name=None, context=None):
         """Arrange for a callback to be called at a given time.
 
@@ -331,6 +314,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             del timer._source_traceback[-1]
         return timer
     
+
     def run_until_complete(self, future, priority=0):
         """Run until the Future is done.
 
@@ -347,8 +331,6 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
         new_task = not futures.isfuture(future)
         future = ensure_future(future, priority, loop=self)
         if new_task:
-            # An exception is raised if the future didn't complete, so there
-            # is no need to log the "destroy pending task" message
             future._log_destroy_pending = False
 
         future.add_done_callback(_run_until_complete_cb)
@@ -356,9 +338,7 @@ class PrioritizedEventLoop(asyncio.SelectorEventLoop):
             self.run_forever()
         except:
             if new_task and future.done() and not future.cancelled():
-                # The coroutine raised a BaseException. Consume the exception
-                # to not log a warning, the caller doesn't have access to the
-                # local task.
+
                 future.exception()
             raise
         finally:
@@ -389,16 +369,15 @@ def _run_until_complete_cb(fut):
     if not fut.cancelled():
         exc = fut.exception()
         if isinstance(exc, (SystemExit, KeyboardInterrupt)):
-            # Issue #22429: run_forever() already finished, no need to
-            # stop it.
+
             return
     _get_loop(fut).stop()
 
 
 def write_trace_file():
 
-    #Recorrer las distintas lineas que deben ir en la cabecera y asignar los números de linea a los eventos
-    sorted_lines = sorted(defined_lines, key=lambda x: (x[1], x[2]))
+    # Recorrer las distintas lineas que deben ir en la cabecera y asignar los números de linea a los eventos
+    sorted_lines = sorted(defined_lines, key=lambda x: (x[1], x[0], x[2]))
     line_counter = 0
     for (line_name, _, _) in sorted_lines:
         header_lines.append(f"LINE_NAME {line_counter} {line_name}\n")
@@ -418,7 +397,7 @@ def write_trace_file():
         for _, event in sorted_events:
             trace_file.write(event)
 
-# Asegúrate de cerrar el archivo de traza al final del script
+# Cerrar el archivo de traza al final del script
 import atexit
 atexit.register(write_trace_file)
 atexit.register(TRACE_FILE.close)
